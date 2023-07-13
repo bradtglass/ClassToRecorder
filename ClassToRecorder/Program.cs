@@ -96,7 +96,8 @@ internal static class Program
         var recordText = recordTree.ToString();
 
         AnsiConsole.MarkupLine("[blue]Previewing record file:[/]");
-        AnsiConsole.Write(new Markup(recordText, new Style(Color.Silver)));
+        AnsiConsole.Write(new Markup(recordText, new Style(Color.Grey)));
+        AnsiConsole.WriteLine();
         AnsiConsole.WriteLine();
         var write = AnsiConsole.Confirm($"Are you sure you would like to overwrite {fileName}?");
 
