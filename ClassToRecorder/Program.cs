@@ -1,111 +1,66 @@
 ﻿using Microsoft.CodeAnalysis;
 using Microsoft.CodeAnalysis.CSharp;
-using Microsoft.CodeAnalysis.CSharp.Syntax;
+using Spectre.Console;
 
 namespace ClassToRecorder;
 
 internal static class Program
 {
-    public static void Main(string[] args)
+    public static async Task Main()
     {
-        var syntaxTree = CSharpSyntaxTree.ParseText(TestData.TestA);
-        var root = syntaxTree.GetRoot();
-        var topLevelNodes = root.ChildNodes().ToList();
-        var @namespace = topLevelNodes.OfType<BaseNamespaceDeclarationSyntax>().Single();
-        var usings = topLevelNodes.OfType<UsingDirectiveSyntax>().Concat(@namespace.Usings).ToList();
-        var classesInfo = @namespace.Members.Cast<ClassDeclarationSyntax>()
-                                    .Select(LoadClass)
-                                    .ToList();
+        var processNextFile = true;
+        while ( processNextFile )
+        {
+            var file = AnsiConsole.Prompt(new TextPrompt<string>("Enter the path of the file to convert:")
+                                             .Validate(File.Exists, "File does not exist"));
+            try
+            {
+                await ProcessFileAsync(new FileInfo(file));
+            }
+            catch ( Exception e )
+            {
+                AnsiConsole.MarkupLine("[red]An error occurred while processing the file.[/]");
+                AnsiConsole.WriteException(e);
+            }
 
-        var fileSyntaxInfo = new FileSyntaxInfo(usings,
-                                                @namespace.Name,
-                                                classesInfo);
-
-        RebuildFiles(fileSyntaxInfo);
+            processNextFile = AnsiConsole.Confirm("Would you like to convert another file?");
+        }
     }
 
-    private static void RebuildFiles(FileSyntaxInfo file)
+    private static async ValueTask ProcessFileAsync(FileInfo file)
     {
-        var namespaceSyntax = SyntaxFactory.FileScopedNamespaceDeclaration(file.Namespace)
-                                           .WithUsings(SyntaxFactory.List(file.Usings));
+        await using var stream = file.Open(FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
+        var tree = await ReadTreeAsync(stream);
 
-        foreach ( var classInfo in file.Classes )
+        var recordTree = Recorder.ToRecord(tree);
+        var recordText = recordTree.ToString();
+
+        AnsiConsole.MarkupLine("[blue]Previewing record file:[/]");
+        AnsiConsole.Write(new Markup(recordText, new Style(Color.Silver)));
+        AnsiConsole.WriteLine();
+        var write = AnsiConsole.Confirm("Are you sure you would like to overwrite the file?");
+
+        if ( write )
         {
-            var classSyntax = RebuildFile(classInfo);
-            namespaceSyntax = namespaceSyntax.AddMembers(classSyntax);
-        }
+            AnsiConsole.MarkupLineInterpolated($"[blue]Overwriting {file.Name}...[/]");
+            stream.Position = 0;
+            stream.SetLength(0);
 
-        var syntax = SyntaxFactory.CompilationUnit()
-                                  .WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>(namespaceSyntax.NormalizeWhitespace()));
-
-        Console.WriteLine(syntax.NormalizeWhitespace().ToFullString());
-    }
-
-    private static RecordDeclarationSyntax RebuildFile(ClassSyntaxInfo classInfo)
-    {
-        var parameterList = SyntaxFactory.ParameterList();
-        foreach ( var prop in classInfo.PublicAutoProperties )
-        {
-            var parameterSyntax = SyntaxFactory.Parameter(prop.Name).WithType(prop.Type);
-            parameterList = parameterList.AddParameters(parameterSyntax);
-        }
-
-        var recordSyntax = SyntaxFactory.RecordDeclaration(SyntaxFactory.Token(SyntaxKind.RecordKeyword),
-                                                           classInfo.Name)
-                                        .WithAttributeLists(classInfo.Attributes)
-                                        .WithModifiers(classInfo.Modifiers)
-                                        .WithBaseList(classInfo.BaseList)
-                                        .WithTypeParameterList(classInfo.TypeParameterList)
-                                        .WithConstraintClauses(classInfo.ConstraintClauses)
-                                        .WithParameterList(parameterList)
-                                        .WithTrailingTrivia(SyntaxFactory.CarriageReturnLineFeed);
-
-        if ( !classInfo.RemainingMembers.Any() )
-        {
-            recordSyntax = recordSyntax.WithSemicolonToken(SyntaxFactory.Token(SyntaxKind.SemicolonToken));
+            await using var writer = new StreamWriter(stream);
+            await writer.WriteAsync(recordText);
+            await writer.FlushAsync();
+            AnsiConsole.MarkupLineInterpolated($"[blue]Finished writing to file.[/]");
         }
         else
         {
-            recordSyntax = recordSyntax.WithOpenBraceToken(SyntaxFactory.Token(SyntaxKind.OpenBraceToken))
-                                       .WithMembers(classInfo.RemainingMembers)
-                                       .WithCloseBraceToken(SyntaxFactory.Token(SyntaxKind.CloseBraceToken));
+            AnsiConsole.MarkupLineInterpolated($"[blue]Cancelling and closing file.[/]");
         }
-
-        return recordSyntax;
     }
 
-    public static ClassSyntaxInfo LoadClass(ClassDeclarationSyntax syntax)
+    private static async ValueTask<SyntaxTree> ReadTreeAsync(Stream stream)
     {
-        var otherMembers = new SyntaxList<MemberDeclarationSyntax>();
-        var autoProperties = new List<PropertySyntaxInfo>();
-
-        foreach ( var member in syntax.Members )
-        {
-            if ( member is PropertyDeclarationSyntax propertyDeclarationSyntax && IsPublicAuto(propertyDeclarationSyntax) )
-            {
-                autoProperties.Add(new PropertySyntaxInfo(propertyDeclarationSyntax.Type,
-                                                          propertyDeclarationSyntax.Identifier));
-            }
-            else
-            {
-                otherMembers = otherMembers.Add(member);
-            }
-        }
-
-        return new ClassSyntaxInfo(syntax.Modifiers,
-                                   syntax.Identifier,
-                                   syntax.BaseList,
-                                   syntax.AttributeLists,
-                                   syntax.ConstraintClauses,
-                                   syntax.TypeParameterList,
-                                   otherMembers,
-                                   autoProperties);
+        using var reader = new StreamReader(stream, leaveOpen : true);
+        var text = await reader.ReadToEndAsync();
+        return CSharpSyntaxTree.ParseText(text);
     }
-
-    private static bool IsPublicAuto(PropertyDeclarationSyntax syntax) =>
-        syntax.Modifiers.Count == 1 &&
-        syntax.Modifiers[ 0 ].IsKind(SyntaxKind.PublicKeyword) &&
-        syntax.AccessorList is not null &&
-        syntax.AccessorList.Accessors.Any() &&
-        syntax.AccessorList.Accessors.All(a => a.Body is null && a.ExpressionBody is null);
 }
