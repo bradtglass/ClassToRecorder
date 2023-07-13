@@ -29,7 +29,11 @@ internal static class Program
 
     private static async ValueTask ProcessFolderAsync(DirectoryInfo directory)
     {
-        var files = directory.EnumerateFiles("*.cs");
+        var searchOption = AnsiConsole.Prompt(new SelectionPrompt<SearchOption>()
+                                             .AddChoices(SearchOption.AllDirectories, SearchOption.TopDirectoryOnly)
+                                             .Title("Select search mode:"));
+
+        var files = directory.EnumerateFiles("*.cs", searchOption);
 
         var count = 0;
         var errorCount = 0;
