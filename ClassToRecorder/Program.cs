@@ -11,19 +11,66 @@ internal static class Program
         var processNextFile = true;
         while ( processNextFile )
         {
-            var file = AnsiConsole.Prompt(new TextPrompt<string>("Enter the path of the file to convert:")
-                                             .Validate(File.Exists, "File does not exist"));
-            try
+            var path = AnsiConsole.Prompt(new TextPrompt<string>("Enter the path of the file or folder to convert:")
+                                             .Validate(p => File.Exists(p) || Directory.Exists(p), "File does not exist"));
+
+            if ( File.Exists(path) )
             {
-                await ProcessFileAsync(new FileInfo(file));
+                await ProcessFileSafeAsync(new FileInfo(path));
             }
-            catch ( Exception e )
+            else
             {
-                AnsiConsole.MarkupLine("[red]An error occurred while processing the file.[/]");
-                AnsiConsole.WriteException(e);
+                await ProcessFolderAsync(new DirectoryInfo(path));
             }
 
             processNextFile = AnsiConsole.Confirm("Would you like to convert another file?");
+        }
+    }
+
+    private static async ValueTask ProcessFolderAsync(DirectoryInfo directory)
+    {
+        var files = directory.EnumerateFiles("*.cs");
+
+        var count = 0;
+        var errorCount = 0;
+        foreach ( var file in files )
+        {
+            count++;
+            var success = await ProcessFileSafeAsync(file);
+            if ( !success )
+            {
+                errorCount++;
+            }
+
+            if ( errorCount == 5 )
+            {
+                var cancel = AnsiConsole.Confirm("[red]It looks like you are experiencing lots of errors, would you like to cancel?[/]", false);
+                if ( cancel )
+                {
+                    return;
+                }
+            }
+        }
+
+        if ( count == 0 )
+        {
+            AnsiConsole.MarkupLine("[red]No files found to convert.[/]");
+        }
+    }
+
+    private static async ValueTask<bool> ProcessFileSafeAsync(FileInfo file)
+    {
+        try
+        {
+            await ProcessFileAsync(file);
+            return true;
+        }
+        catch ( Exception e )
+        {
+            AnsiConsole.MarkupLineInterpolated($"[red]An error occurred while processing the file ({file.Name}).[/]");
+            AnsiConsole.WriteException(e);
+
+            return true;
         }
     }
 
@@ -38,7 +85,7 @@ internal static class Program
         AnsiConsole.MarkupLine("[blue]Previewing record file:[/]");
         AnsiConsole.Write(new Markup(recordText, new Style(Color.Silver)));
         AnsiConsole.WriteLine();
-        var write = AnsiConsole.Confirm("Are you sure you would like to overwrite the file?");
+        var write = AnsiConsole.Confirm($"Are you sure you would like to overwrite {file.Name}?");
 
         if ( write )
         {
