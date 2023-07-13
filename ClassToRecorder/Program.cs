@@ -86,6 +86,13 @@ internal static class Program
         var tree = await ReadTreeAsync(stream);
 
         var recordTree = Recorder.ToRecord(tree);
+
+        if ( recordTree is null )
+        {
+            AnsiConsole.MarkupLine("[blue]No classes found to convert.[/]");
+            return;
+        }
+
         var recordText = recordTree.ToString();
 
         AnsiConsole.MarkupLine("[blue]Previewing record file:[/]");

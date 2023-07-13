@@ -6,19 +6,38 @@ namespace ClassToRecorder;
 
 public static class Recorder
 {
-      public static SyntaxTree ToRecord(SyntaxTree tree)
+    public static SyntaxTree? ToRecord(SyntaxTree tree)
     {
         var root = tree.GetRoot();
         var topLevelNodes = root.ChildNodes().ToList();
         var @namespace = topLevelNodes.OfType<BaseNamespaceDeclarationSyntax>().Single();
         var usings = topLevelNodes.OfType<UsingDirectiveSyntax>().Concat(@namespace.Usings).ToList();
-        var classesInfo = @namespace.Members.Cast<ClassDeclarationSyntax>()
-                                    .Select(LoadClass)
-                                    .ToList();
+
+        var members = new List<MemberDeclarationSyntax>();
+        var hasRecord = false;
+        foreach ( var member in @namespace.Members )
+        {
+            if ( member is ClassDeclarationSyntax classSyntax )
+            {
+                hasRecord = true;
+                var syntaxInfo = LoadClass(classSyntax);
+                var recordSyntax = GenerateRecord(syntaxInfo);
+                members.Add(recordSyntax);
+            }
+            else
+            {
+                members.Add(member);
+            }
+        }
+
+        if ( hasRecord )
+        {
+            return null;
+        }
 
         var fileSyntaxInfo = new FileSyntaxInfo(usings,
                                                 @namespace.Name,
-                                                classesInfo);
+                                                members);
 
         var syntax = RebuildFile(fileSyntaxInfo);
         return CSharpSyntaxTree.Create(syntax);
@@ -27,13 +46,8 @@ public static class Recorder
     private static CompilationUnitSyntax RebuildFile(FileSyntaxInfo file)
     {
         var namespaceSyntax = SyntaxFactory.FileScopedNamespaceDeclaration(file.Namespace)
-                                           .WithUsings(SyntaxFactory.List(file.Usings));
-
-        foreach ( var classInfo in file.Classes )
-        {
-            var classSyntax = RebuildFile(classInfo);
-            namespaceSyntax = namespaceSyntax.AddMembers(classSyntax);
-        }
+                                           .WithUsings(SyntaxFactory.List(file.Usings))
+                                           .WithMembers(SyntaxFactory.List(file.Members));
 
         var syntax = SyntaxFactory.CompilationUnit()
                                   .WithMembers(SyntaxFactory.SingletonList<MemberDeclarationSyntax>(namespaceSyntax.NormalizeWhitespace()));
@@ -41,7 +55,7 @@ public static class Recorder
         return syntax;
     }
 
-    private static RecordDeclarationSyntax RebuildFile(ClassSyntaxInfo classInfo)
+    private static RecordDeclarationSyntax GenerateRecord(ClassSyntaxInfo classInfo)
     {
         var parameterList = SyntaxFactory.ParameterList();
         foreach ( var prop in classInfo.PublicAutoProperties )
