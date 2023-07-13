@@ -80,6 +80,8 @@ internal static class Program
 
     private static async ValueTask ProcessFileAsync(FileInfo file)
     {
+        var fileName = WriteFileHeader(file);
+
         await using var stream = file.Open(FileMode.Open, FileAccess.ReadWrite, FileShare.Read);
         var tree = await ReadTreeAsync(stream);
 
@@ -89,11 +91,11 @@ internal static class Program
         AnsiConsole.MarkupLine("[blue]Previewing record file:[/]");
         AnsiConsole.Write(new Markup(recordText, new Style(Color.Silver)));
         AnsiConsole.WriteLine();
-        var write = AnsiConsole.Confirm($"Are you sure you would like to overwrite {file.Name}?");
+        var write = AnsiConsole.Confirm($"Are you sure you would like to overwrite {fileName}?");
 
         if ( write )
         {
-            AnsiConsole.MarkupLineInterpolated($"[blue]Overwriting {file.Name}...[/]");
+            AnsiConsole.MarkupLineInterpolated($"[blue]Overwriting {fileName}...[/]");
             stream.Position = 0;
             stream.SetLength(0);
 
@@ -106,6 +108,20 @@ internal static class Program
         {
             AnsiConsole.MarkupLineInterpolated($"[blue]Cancelling and closing file.[/]");
         }
+    }
+
+    private static string WriteFileHeader(FileInfo file)
+    {
+        AnsiConsole.WriteLine();
+        AnsiConsole.WriteLine();
+
+        var fileName = file.Name;
+        var headerBorder = new string(Enumerable.Repeat('-', fileName.Length + 6).ToArray()) + Environment.NewLine;
+        var style = new Style(Color.Magenta1);
+        AnsiConsole.Write(new Markup(headerBorder, style));
+        AnsiConsole.Write(new Markup($"-- {fileName} --" + Environment.NewLine, style));
+        AnsiConsole.Write(new Markup(headerBorder, style));
+        return fileName;
     }
 
     private static async ValueTask<SyntaxTree> ReadTreeAsync(Stream stream)
