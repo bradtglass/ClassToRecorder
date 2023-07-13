@@ -30,7 +30,7 @@ public static class Recorder
             }
         }
 
-        if ( hasRecord )
+        if ( !hasRecord )
         {
             return null;
         }
