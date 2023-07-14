@@ -1,6 +1,6 @@
 # Class To Record(er)
 
-A simple C# console application to convert *.cs files container classes to their equivalent records.
+A simple C# console application to convert *.cs files containing classes to their equivalent records.
 
 ## Usage
 
